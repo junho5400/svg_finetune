@@ -84,13 +84,17 @@ class Config:
 
 @dataclass
 class DryRunConfig(Config):
-    """Tiny shapes for CPU smoke test. Inherits from Config + overrides."""
+    """Tiny shapes for smoke test on either Mac CPU or RunPod GPU.
+
+    bf16 is True so 7B fits on a 4090 (float32 would OOM at 28GB > 24GB VRAM).
+    On Mac CPU this auto-disables in train.py since it's gated on
+    torch.cuda.is_available()."""
     per_device_train_batch_size: int = 1
     per_device_eval_batch_size: int = 1
     gradient_accumulation_steps: int = 1
     num_train_epochs: int = 1
     max_length: int = 256
-    bf16: bool = False
+    bf16: bool = True
     push_to_hub: bool = False
     output_dir: Path = ROOT / "outputs" / "dryrun"
     logging_steps: int = 1
