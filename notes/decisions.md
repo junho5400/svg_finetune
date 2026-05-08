@@ -290,7 +290,38 @@ The `\nSVG:\n` separator is the response template for SFTTrainer's loss masking.
   uses to mask loss on caption tokens.
 - Don't change this format mid-training — re-baseline if you do.
 
-## 15. Base model: upgrade 0.5B → Qwen2.5-Coder-7B
+## 15. OCR-based letter accuracy as quantitative eval metric
+
+**Decision**: Use EasyOCR on rendered samples (after re-rendering at 1024×1024 + tight
+crop + center on white) as a quantitative letter-recognition metric for any model
+checkpoint. Off-the-shelf, no need to train a custom classifier.
+
+**Reasoning**:
+- Pure SFT loss tells us the model is converging on training distribution but not
+  whether outputs are recognizable letters at inference.
+- Eyeballing 30 rendered PNGs is subjective and slow.
+- Off-the-shelf OCR (EasyOCR, Tesseract) recognizes single letters reliably enough
+  to give an objective "did the SVG render as the requested letter?" pass/fail.
+- Lets us track progress: baseline 7B → step 2500 → step 7500 → … with one number.
+
+**Pre-processing pitfall** (resolved): cairosvg outputs RGBA with transparent
+background. PIL's default `convert("RGB")` composites on black, so black-ink
+glyphs become all-black squares. Fix: explicitly composite on white via
+`Image.paste(rgba_img, mask=rgba_img.split()[3])`.
+
+**Baselines (full eval-set of 30 prompts)**:
+- 7B no training: 0/30 exact match (random shapes)
+- Step 2500 (3% of training): 2/30 exact, 6/30 letter-shaped (B, r, h→H, q→0, W→IN, E→F)
+- Future targets: step ~85k completion → aiming for 20+/30 exact
+
+**How to apply**:
+- Run `python score_glyphs.py outputs/eval/<run_dir>` after generating any new eval batch.
+- Track the exact-match number across checkpoints; flag plateau if no improvement
+  over multiple evals (might trigger DPO follow-up).
+- The script saves preprocessed images to `<run_dir>/preprocessed/` for visual
+  spot-check of OCR inputs.
+
+## 16. Base model: upgrade 0.5B → Qwen2.5-Coder-7B
 
 **Decision**: Switch from `Qwen/Qwen2.5-Coder-0.5B` to `Qwen/Qwen2.5-Coder-7B`.
 
