@@ -49,14 +49,35 @@ def filter_by_length(ds: Dataset, tokenizer, max_length: int,
 
 
 def load_datasets(cfg, tokenizer) -> tuple[Dataset, Dataset]:
-    """Load train + val splits, filter by max_length."""
+    """Load train + val splits, filter by max_length, cache the filtered
+    output to disk so subsequent runs skip the 3-5 min filter step.
+
+    Cache lives at data/processed_maxlen{N}/{train,val}/ — keyed on
+    max_length so different settings cache separately. Safe to delete
+    the cache dir to force a refilter (e.g. if the parquets change)."""
+    cache_root = cfg.train_path.parent / f"processed_maxlen{cfg.max_length}"
+    train_cache = cache_root / "train"
+    val_cache = cache_root / "val"
+
+    if train_cache.exists() and val_cache.exists():
+        print(f"  loading filtered datasets from cache: {cache_root}")
+        train = Dataset.load_from_disk(str(train_cache))
+        val = Dataset.load_from_disk(str(val_cache))
+        print(f"  cached     : train={len(train):,}  val={len(val):,}")
+        return train, val
+
     train = load_split(cfg.train_path, cfg)
     val = load_split(cfg.val_path, cfg)
     print(f"  loaded     : train={len(train):,}  val={len(val):,}")
 
-    print(f"  filtering by max_length={cfg.max_length}...")
+    print(f"  filtering by max_length={cfg.max_length} (this is the slow step on first run)...")
     train = filter_by_length(train, tokenizer, cfg.max_length)
     val = filter_by_length(val, tokenizer, cfg.max_length)
     print(f"  after filter: train={len(train):,}  val={len(val):,}")
+
+    print(f"  saving filtered datasets to {cache_root} for future runs...")
+    cache_root.mkdir(parents=True, exist_ok=True)
+    train.save_to_disk(str(train_cache))
+    val.save_to_disk(str(val_cache))
 
     return train, val
