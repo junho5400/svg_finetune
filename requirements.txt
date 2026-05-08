@@ -1,11 +1,23 @@
-torch>=2.1
-transformers>=4.42
-peft>=0.10
-accelerate>=0.30
-trl>=0.10
-datasets>=2.14
-wandb>=0.16
-huggingface_hub>=0.20
+# Pinned versions validated end-to-end via colab/dryrun_validate.ipynb on
+# 2026-05-08 (Colab A100, torch+cu128). The compatibility between
+# transformers / peft / trl / torch is brittle — loose pins caused several
+# hours of debugging on a paid RunPod pod. To bump any of these:
+#   1. Update colab/dryrun_validate.ipynb pin range
+#   2. Run the notebook on Colab; if pipeline still trains 5 steps cleanly, OK
+#   3. Update this file with the new pip freeze versions
+#   4. Only then bring to RunPod
+#
+# Load-bearing (exact pins — known-working stack):
+torch==2.10.0
+transformers==4.46.3
+peft==0.13.2
+trl==0.12.2
+accelerate==1.13.0
+datasets==3.6.0
+wandb==0.26.1
+
+# Supporting libs (looser pins — less risk of incompatibility):
+huggingface_hub>=0.26,<1.0
 pandas>=2.0
 pyarrow>=14
 cairosvg>=2.7

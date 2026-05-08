@@ -90,6 +90,41 @@ Test run with 640×160 images had Claude calling 42dot Sans "italic" (it isn't),
 **passing the font's category as ground-truth in the prompt**. With `category=SANS_SERIF`
 declared, Claude focused on visual nuances within sans-serif rather than miscategorizing.
 
+## RunPod dep hell — fixed by pin everything + Colab-validate first
+
+Initial RunPod session burned ~30 min and several pod minutes debugging dependency
+mismatches:
+
+1. `requirements.txt` had loose pins (`torch>=2.1`, `transformers>=4.42`, etc.). pip
+   skips already-installed packages that satisfy the constraint, so we got
+   pod-template-shipped torch 2.4 + latest transformers, which was incompatible
+   (transformers needed torch 2.5+ for `torch.library.custom_op` schema inference).
+2. `pip install --upgrade torch` pulled torch 2.11, but left torchvision 0.19 (built
+   for torch 2.4) installed — torchvision then crashed transformers' image_utils
+   import chain.
+3. trl 0.13+ removed `DataCollatorForCompletionOnlyLM` from top-level export.
+4. peft 0.19 referenced `torch.distributed.tensor.DTensor` at a path that didn't exist
+   in torch 2.11.
+5. HF_HOME defaulted to container disk (~20 GB) which filled up downloading the 7B
+   model.
+
+**Fix**: validate full pipeline on Colab Pro first using
+`colab/dryrun_validate.ipynb` (free, A100 or T4), capture working pip freeze, lock in
+exact pins in `requirements.txt`. Document `HF_HOME=/workspace/.hf_cache` so HF cache
+goes to the network volume not the container disk.
+
+**Validated combo (2026-05-08)**:
+- torch==2.10.0 (cu128 wheel)
+- transformers==4.46.3
+- peft==0.13.2
+- trl==0.12.2
+- accelerate==1.13.0
+- datasets==3.6.0
+- wandb==0.26.1
+
+If any of these need bumping in the future, re-run `colab/dryrun_validate.ipynb` with
+new pin ranges before touching RunPod.
+
 ## 7B few-shot prompting: model copies, doesn't generalize
 
 Tested 0/1/3-shot prompting on 5 fresh test prompts (B sans, M serif, p handwriting,
