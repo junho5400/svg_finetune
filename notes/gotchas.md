@@ -218,6 +218,39 @@ Combined, the run fits comfortably with margin. Both knobs are conservative — 
 go back to batch=4 if quality demands more parallelism, but checkpointing should
 stay on for any 7B training on a 24GB GPU.
 
+## Path command order: font-outline encoding vs. natural drawing order
+
+Our SVGs are extracted with `fontTools.SVGPathPen`, which traces TTF contours in
+**font-designer outline order**:
+- Starting point is wherever the contour was originally drawn (often mid-edge, not
+  at top or any canonical anchor)
+- Counter-clockwise outer outline
+- Clockwise inner holes (for fill-rule correctness)
+- Multiple pen-lifts (`M` commands) between contours
+
+Compare to **natural drawing order** (how humans handwrite, and probably what
+Quiver Arrow's training data follows):
+- Canonical starting point (top, leftmost, etc.)
+- Single continuous sweep where possible
+- Few pen-lifts
+- Spatial locality maintained across the whole glyph
+
+For autoregressive learning, natural order is probably easier — each next-token
+prediction is more locally predictable. Our current encoding has high locality
+*within* a contour but abrupt jumps between contours.
+
+**For future iterations**, three options to fix:
+1. **Reorder commands by spatial heuristic** (start each contour at the topmost or
+   leftmost point) — modest preprocessing
+2. **Stroke skeletonization** — extract centerlines, draw each stroke as a single
+   connected segment — major rewrite of extraction pipeline
+3. **Use a dataset where SVGs are already designer-authored in natural order**
+   (decorative SVG corpora, not font outlines)
+
+We didn't catch this before training. It's a real methodology gap — the model is
+learning a less natural representation than it could. Would add to "lessons
+learned" for the README.
+
 ## Response template tokenization mismatch (DataCollatorForCompletionOnlyLM)
 
 Dry run on RunPod showed warnings for ~40% of examples:
