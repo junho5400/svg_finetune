@@ -9,6 +9,8 @@
 #
 # Load-bearing (exact pins — known-working stack):
 torch==2.10.0
+torchvision==0.25.0  # MUST match torch's minor; transformers imports it
+torchaudio==2.10.0   # MUST match torch's minor; pip leaves it alone otherwise
 transformers==4.46.3
 peft==0.13.2
 trl==0.12.2
