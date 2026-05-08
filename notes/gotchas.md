@@ -90,6 +90,29 @@ Test run with 640×160 images had Claude calling 42dot Sans "italic" (it isn't),
 **passing the font's category as ground-truth in the prompt**. With `category=SANS_SERIF`
 declared, Claude focused on visual nuances within sans-serif rather than miscategorizing.
 
+## Gradient checkpointing + PEFT/LoRA — backward fails on frozen base model
+
+After enabling gradient_checkpointing (to fit 7B + LoRA in 24GB), the next training
+attempt crashed at backward:
+```
+RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+```
+
+**Why**: `torch.utils.checkpoint` expects at least one input to require gradients. With
+PEFT, only the LoRA adapter weights require grad — the base model is frozen. So the
+inputs to checkpointed sub-modules don't have `requires_grad=True` and the backward
+graph doesn't reach them.
+
+**Fix** (two parts, both needed):
+1. After `get_peft_model(...)`, call `model.enable_input_require_grads()`. This forces
+   gradients to flow through the input embeddings even though the embedding weights
+   are frozen.
+2. Set `gradient_checkpointing_kwargs={"use_reentrant": False}` in SFTConfig — the
+   non-reentrant checkpoint implementation handles this case more cleanly.
+
+This combo is the standard PEFT-with-gradient-checkpointing recipe. Without it, you
+hit the error above on the first backward pass.
+
 ## OOM on first real training step (4090, 7B + LoRA, max_length=2048)
 
 First real training launch crashed at step 0 with:

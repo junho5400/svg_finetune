@@ -59,6 +59,13 @@ def main(dry_run: bool) -> None:
     model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
 
+    # PEFT + gradient_checkpointing requires this — without it, the inputs to
+    # checkpointed sub-modules don't have requires_grad=True (because the base
+    # model is frozen), and backward fails with "element 0 ... does not require
+    # grad". See notes/gotchas.md "Gradient checkpointing + PEFT".
+    if getattr(cfg, "gradient_checkpointing", False):
+        model.enable_input_require_grads()
+
     print("Loading datasets...")
     train_ds, val_ds = load_datasets(cfg, tok)
 
@@ -77,6 +84,7 @@ def main(dry_run: bool) -> None:
         per_device_eval_batch_size=cfg.per_device_eval_batch_size,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
         gradient_checkpointing=getattr(cfg, "gradient_checkpointing", False),
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         num_train_epochs=cfg.num_train_epochs,
         warmup_ratio=cfg.warmup_ratio,
         lr_scheduler_type=cfg.lr_scheduler_type,
