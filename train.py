@@ -96,8 +96,18 @@ def main(dry_run: bool) -> None:
         max_steps=5 if dry_run else -1,
     )
 
+    # Pass response template as token IDs (not as a string) and drop the
+    # leading "\n" — see notes/gotchas.md "Response template tokenization
+    # mismatch": some captions end with characters that merge with the
+    # following "\n" into a single token under BPE, so the standalone
+    # tokenization of "\nSVG:\n" doesn't match the in-context tokens. Using
+    # IDs starting from "SVG:" (no leading newline) avoids this.
+    response_template_ids = tok(
+        cfg.response_template.lstrip("\n"),
+        add_special_tokens=False,
+    ).input_ids
     collator = DataCollatorForCompletionOnlyLM(
-        response_template=cfg.response_template,
+        response_template=response_template_ids,
         tokenizer=tok,
     )
 

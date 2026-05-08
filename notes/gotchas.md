@@ -90,6 +90,41 @@ Test run with 640×160 images had Claude calling 42dot Sans "italic" (it isn't),
 **passing the font's category as ground-truth in the prompt**. With `category=SANS_SERIF`
 declared, Claude focused on visual nuances within sans-serif rather than miscategorizing.
 
+## Response template tokenization mismatch (DataCollatorForCompletionOnlyLM)
+
+Dry run on RunPod showed warnings for ~40% of examples:
+
+```
+UserWarning: Could not find response key `\nSVG:\n` in the following instance: ...
+This instance will be ignored in loss calculation.
+```
+
+Loss values confirmed: roughly half of steps had `loss=0.0` and `grad_norm=0.0`,
+and `eval_loss=NaN` (because *all* eval examples got ignored).
+
+**Why**: BPE tokenizers (Qwen, Llama, etc.) tokenize differently based on context.
+The collator tokenizes `"\nSVG:\n"` as a standalone string and searches for those
+IDs in the tokenized full text. When a caption ends with `.`, `,`, `;`, `'`, etc.,
+the leading `\n` of the template gets merged with the punctuation into a single
+token → standalone IDs don't match. Result: example silently dropped from loss.
+
+**Fix**: pass `response_template` as **token IDs** (not a string), AND strip the
+leading newline:
+
+```python
+response_template_ids = tok(
+    cfg.response_template.lstrip("\n"),
+    add_special_tokens=False,
+).input_ids
+collator = DataCollatorForCompletionOnlyLM(
+    response_template=response_template_ids,
+    tokenizer=tok,
+)
+```
+
+Without this, real training would silently degrade ~40% of gradient signal — not a
+failure mode you'd notice without inspecting the dry-run warnings carefully.
+
 ## RunPod dep hell — fixed by pin everything + Colab-validate first
 
 Initial RunPod session burned ~30 min and several pod minutes debugging dependency
