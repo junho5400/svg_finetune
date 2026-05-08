@@ -77,13 +77,12 @@ class Config:
     logging_steps: int = 10
     eval_steps: int = 200
     save_steps: int = 500
-    save_total_limit: int = 2   # keep 2 so a corrupted save doesn't wipe history
-    # Save adapter only (not optimizer state). For LoRA, losing Adam momentum
-    # on resume is a small price for ~3x smaller checkpoints (~320 MB vs ~1 GB).
-    # Combined with save_total_limit=2: peak disk during a save ≈ 3×320 MB ≈ 1 GB,
-    # comfortably within the 30 GB volume's free space. See notes/gotchas.md
-    # "Disk full during checkpoint save".
-    save_only_model: bool = True
+    save_total_limit: int = 2
+    # save_only_model=False keeps the full state (optimizer + scheduler + RNG +
+    # trainer_state) so resume picks up cleanly with Adam momentum intact.
+    # Each checkpoint is ~940 MB; save_total_limit=2 → ~1.9 GB stored, ~2.8 GB
+    # peak during a save. Comfortable inside the 30 GB volume.
+    save_only_model: bool = False
 
     # --- Hub ---
     hub_repo_id: str = "junho5400/svg-finetune-qwen-7b-lora"
