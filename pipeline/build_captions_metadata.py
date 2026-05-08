@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 INDEX = ROOT / "data" / "font_index.csv"
 GLYPHS = ROOT / "data" / "glyphs.parquet"
 

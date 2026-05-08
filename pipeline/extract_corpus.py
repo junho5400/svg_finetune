@@ -26,7 +26,7 @@ from tqdm import tqdm
 
 from extract_glyph import extract_glyph_svg
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 INDEX = ROOT / "data" / "font_index.csv"
 OUT = ROOT / "data" / "glyphs.parquet"
 

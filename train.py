@@ -113,7 +113,13 @@ def main(dry_run: bool) -> None:
         run_name=cfg.wandb_run_name,
         dataset_text_field="text",
         seed=cfg.seed,
-        max_steps=5 if dry_run else -1,
+        # max_steps override via SVG_MAX_STEPS_OVERRIDE env var lets a single
+        # Colab session cap training at e.g. 30k steps without editing config.
+        max_steps=(
+            5 if dry_run
+            else int(os.environ["SVG_MAX_STEPS_OVERRIDE"]) if os.environ.get("SVG_MAX_STEPS_OVERRIDE")
+            else -1
+        ),
         # eval disabled — val set is too large to eval at training cadence
         # without dominating runtime (~1-2h per eval × 425 evals at eval_steps=200
         # = days of eval alone). Real evaluation is qualitative on the test set

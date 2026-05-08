@@ -22,7 +22,7 @@ import pandas as pd
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 GLYPHS = ROOT / "data" / "glyphs.parquet"
 RENDERS_DIR = ROOT / "data" / "sanity_renders"
 SAMPLE_N = 30

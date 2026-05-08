@@ -6,6 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Small text-to-SVG LoRA fine-tuning side project. This file is the authoritative spec; reasoning behind specific choices and resolved gotchas live in `notes/decisions.md` and `notes/gotchas.md`.
 
+## Layout
+
+```
+.
+├── pipeline/             # Data pipeline (one-time, already run). See pipeline/README.md
+├── colab/                # Colab notebooks (eval, dryrun, train_resume)
+├── notes/                # decisions.md + gotchas.md
+├── config.py             # Training hyperparameters (Config + DryRunConfig)
+├── data.py               # Dataset loading, format helpers
+├── train.py              # SFTTrainer entrypoint, auto-resume, auto-terminate
+├── eval.py               # Generation eval against fixed prompt set
+├── score_glyphs.py       # OCR-based letter-accuracy scorer (post-eval)
+├── prep_data_hub.py      # Push parquets to HF Hub for Colab fetch
+├── requirements.txt      # Pinned deps (validated via colab/dryrun_validate.ipynb)
+├── data/                 # gitignored — parquets, model cache, training caches
+└── outputs/              # gitignored — checkpoints, eval renders
+```
+
 ## Scope
 
 **Text → single SVG glyph, conditioned on free-form font style description.** Demo input: a vibe prompt + a target character (e.g. *"warm humanist serif, journal-like"* + `'A'`). Demo output: an SVG glyph in that style, progressively rendered as tokens stream.

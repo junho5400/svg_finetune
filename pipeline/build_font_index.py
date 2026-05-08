@@ -13,7 +13,7 @@ import csv
 from collections import Counter, defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 GOOGLE_FONTS = ROOT / "data" / "google-fonts"
 OUT_PATH = ROOT / "data" / "font_index.csv"
 TAGS_CSV = GOOGLE_FONTS / "tags" / "all" / "families.csv"

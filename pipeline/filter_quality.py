@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 FAMILIES_CSV = ROOT / "data" / "google-fonts" / "tags" / "all" / "families.csv"
 GLYPHS = ROOT / "data" / "glyphs.parquet"
 
