@@ -92,8 +92,6 @@ def main(dry_run: bool) -> None:
         bf16=use_bf16,
         max_seq_length=cfg.max_length,
         logging_steps=cfg.logging_steps,
-        eval_strategy="steps",
-        eval_steps=cfg.eval_steps,
         save_steps=cfg.save_steps,
         save_total_limit=cfg.save_total_limit,
         push_to_hub=cfg.push_to_hub,
@@ -103,6 +101,11 @@ def main(dry_run: bool) -> None:
         dataset_text_field="text",
         seed=cfg.seed,
         max_steps=5 if dry_run else -1,
+        # eval disabled — val set is too large to eval at training cadence
+        # without dominating runtime (~1-2h per eval × 425 evals at eval_steps=200
+        # = days of eval alone). Real evaluation is qualitative on the test set
+        # post-training (see notes/decisions.md "Validation framework").
+        eval_strategy="no",
     )
 
     # Pass response template as token IDs (not as a string) and drop the
