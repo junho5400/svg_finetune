@@ -94,6 +94,7 @@ def main(dry_run: bool) -> None:
         logging_steps=cfg.logging_steps,
         save_steps=cfg.save_steps,
         save_total_limit=cfg.save_total_limit,
+        save_only_model=getattr(cfg, "save_only_model", False),
         push_to_hub=cfg.push_to_hub,
         hub_model_id=cfg.hub_repo_id if cfg.push_to_hub else None,
         report_to=["wandb"] if not dry_run else "none",

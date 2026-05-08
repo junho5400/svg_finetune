@@ -113,6 +113,33 @@ graph doesn't reach them.
 This combo is the standard PEFT-with-gradient-checkpointing recipe. Without it, you
 hit the error above on the first backward pass.
 
+## Disk full during checkpoint save (volume too small for full checkpoints)
+
+After ~1700 steps of training, checkpoint save crashed with:
+```
+RuntimeError: [enforce fail at inline_container.cc:668] . unexpected pos 268800128 vs 268800016
+```
+This is the torch.save partial-write signature when the filesystem rejects more bytes
+mid-save (volume hard limit hit).
+
+**Why**: full checkpoint = LoRA adapter (~320 MB) + AdamW optimizer state (~640 MB) +
+scheduler/RNG/trainer state (~50 MB) ≈ **1 GB each**. With `save_total_limit=2`, peak
+disk during a save = 3 checkpoints × 1 GB = 3 GB, which exceeded the volume's free
+space (~3 GB free at start, dropping below 1 GB during repeated checkpoints).
+
+**Fix** (no volume resize needed):
+1. `save_only_model=True` — saves just adapter weights, skips optimizer state.
+   Shrinks each checkpoint from ~1 GB to ~320 MB.
+2. `save_total_limit=1` — keeps only the most recent checkpoint instead of two.
+
+Trade-off: resume from checkpoint loses Adam momentum (training picks up with fresh
+optimizer state). For LoRA fine-tuning this is a small quality hit, much better than
+running out of disk and corrupting checkpoints.
+
+If you want full-state checkpoints back, **resize the network volume to 30+ GB** in
+RunPod ($0.07/GB/month → ~$2.10/month for 30 GB). Then revert `save_only_model=False`
+and `save_total_limit=2`.
+
 ## OOM at cross_entropy_loss with long seq_len (Qwen ~150k vocab)
 
 After fixing the gradient_checkpointing+PEFT issue, training got 6 steps in then
