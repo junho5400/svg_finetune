@@ -1,0 +1,140 @@
+"""
+Train Qwen2.5-Coder-0.5B with LoRA on (caption → SVG glyph) pairs.
+
+Modes:
+  python train.py --dry-run    Tiny shapes on CPU. Catches wiring bugs cheaply
+                                before any GPU spend. Mandatory before any
+                                real run.
+  python train.py              Real training run (bf16 + WandB + push to HF Hub).
+
+If RUNPOD_POD_ID is in the environment at end of a real run, the script
+calls `runpodctl stop pod` to terminate the pod (CLAUDE.md mandates this).
+
+Format details:
+  - Each training pair is `{caption}\\n{svg}`.
+  - DataCollatorForCompletionOnlyLM is given response_template=`\\n<svg`,
+    which uniquely starts the SVG portion. Loss is computed only on
+    tokens after that template — caption tokens contribute no gradient.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+
+import torch
+from peft import LoraConfig, get_peft_model
+from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
+
+from config import Config, DryRunConfig
+from data import load_datasets
+
+
+def main(dry_run: bool) -> None:
+    cfg: Config = DryRunConfig() if dry_run else Config()
+    set_seed(cfg.seed)
+
+    print(f"Loading tokenizer + model ({cfg.base_model})...")
+    tok = AutoTokenizer.from_pretrained(cfg.base_model)
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+
+    use_bf16 = cfg.bf16 and torch.cuda.is_available()
+    model = AutoModelForCausalLM.from_pretrained(
+        cfg.base_model,
+        torch_dtype=torch.bfloat16 if use_bf16 else torch.float32,
+        device_map="auto" if torch.cuda.is_available() else None,
+    )
+
+    print(f"Wrapping with LoRA (r={cfg.lora_r}, alpha={cfg.lora_alpha})...")
+    lora_cfg = LoraConfig(
+        r=cfg.lora_r,
+        lora_alpha=cfg.lora_alpha,
+        lora_dropout=cfg.lora_dropout,
+        target_modules=cfg.lora_target_modules,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+    model = get_peft_model(model, lora_cfg)
+    model.print_trainable_parameters()
+
+    print("Loading datasets...")
+    train_ds, val_ds = load_datasets(cfg, tok)
+
+    if dry_run:
+        # tiny subset for fast smoke test
+        train_ds = train_ds.select(range(min(20, len(train_ds))))
+        val_ds = val_ds.select(range(min(5, len(val_ds))))
+
+    if not dry_run:
+        os.environ.setdefault("WANDB_PROJECT", cfg.wandb_project)
+
+    sft_args = SFTConfig(
+        output_dir=str(cfg.output_dir),
+        learning_rate=cfg.learning_rate,
+        per_device_train_batch_size=cfg.per_device_train_batch_size,
+        per_device_eval_batch_size=cfg.per_device_eval_batch_size,
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        num_train_epochs=cfg.num_train_epochs,
+        warmup_ratio=cfg.warmup_ratio,
+        lr_scheduler_type=cfg.lr_scheduler_type,
+        weight_decay=cfg.weight_decay,
+        bf16=use_bf16,
+        max_seq_length=cfg.max_length,
+        logging_steps=cfg.logging_steps,
+        eval_strategy="steps",
+        eval_steps=cfg.eval_steps,
+        save_steps=cfg.save_steps,
+        save_total_limit=cfg.save_total_limit,
+        push_to_hub=cfg.push_to_hub,
+        hub_model_id=cfg.hub_repo_id if cfg.push_to_hub else None,
+        report_to=["wandb"] if not dry_run else "none",
+        run_name=cfg.wandb_run_name,
+        dataset_text_field="text",
+        seed=cfg.seed,
+        max_steps=5 if dry_run else -1,
+    )
+
+    collator = DataCollatorForCompletionOnlyLM(
+        response_template=cfg.response_template,
+        tokenizer=tok,
+    )
+
+    trainer = SFTTrainer(
+        model=model,
+        args=sft_args,
+        train_dataset=train_ds,
+        eval_dataset=val_ds,
+        data_collator=collator,
+        tokenizer=tok,
+    )
+
+    print(f"Starting {'DRY-RUN' if dry_run else 'training'}...")
+    trainer.train()
+
+    print("Saving final adapter...")
+    final_dir = cfg.output_dir / "final"
+    trainer.save_model(str(final_dir))
+
+    if cfg.push_to_hub:
+        print(f"Pushing to {cfg.hub_repo_id}...")
+        trainer.push_to_hub()
+
+    print("Done.")
+
+    # Auto-terminate on RunPod (CLAUDE.md mandates this for any real run).
+    if not dry_run and os.environ.get("RUNPOD_POD_ID"):
+        pod_id = os.environ["RUNPOD_POD_ID"]
+        print(f"Auto-terminating RunPod pod {pod_id}...")
+        subprocess.run(["runpodctl", "stop", "pod", pod_id], check=False)
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true",
+                    help="CPU smoke test with tiny shapes (no WandB, no Hub push)")
+    args = ap.parse_args()
+
+    dry_run = args.dry_run or os.environ.get("DRY_RUN") == "1"
+    main(dry_run)
