@@ -121,7 +121,12 @@ def main(dry_run: bool) -> None:
     )
 
     print(f"Starting {'DRY-RUN' if dry_run else 'training'}...")
-    trainer.train()
+    # resume_from_checkpoint=True tells Trainer to auto-detect the latest
+    # checkpoint in output_dir if one exists, otherwise start fresh. Safe
+    # to always pass — does the right thing in both cases.
+    trainer.train(resume_from_checkpoint=True if cfg.output_dir.exists()
+                  and any(cfg.output_dir.glob("checkpoint-*"))
+                  else None)
 
     print("Saving final adapter...")
     final_dir = cfg.output_dir / "final"
