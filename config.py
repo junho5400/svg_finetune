@@ -52,7 +52,12 @@ class Config:
     lr_scheduler_type: str = "cosine"
     weight_decay: float = 0.01
     bf16: bool = True               # 4090 supports; auto-disabled on CPU
-    max_length: int = 2048          # task #7 measurement: fits 95% of glyphs
+    # max_length=1024 (down from 2048). Why: cross-entropy on Qwen's ~150k vocab
+    # × seq_len=2048 produces logits tensors that OOM the 4090. 1024 halves
+    # logits memory and still fits ~88% of glyphs (task #7). Lose the longest
+    # 12% (mostly decorative pixel-art outliers); keep the bulk of training
+    # signal. See notes/gotchas.md "OOM at cross_entropy_loss with long seq_len".
+    max_length: int = 1024
 
     # --- Data paths ---
     train_path: Path = ROOT / "data" / "train.parquet"

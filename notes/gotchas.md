@@ -113,7 +113,34 @@ graph doesn't reach them.
 This combo is the standard PEFT-with-gradient-checkpointing recipe. Without it, you
 hit the error above on the first backward pass.
 
-## OOM on first real training step (4090, 7B + LoRA, max_length=2048)
+## OOM at cross_entropy_loss with long seq_len (Qwen ~150k vocab)
+
+After fixing the gradient_checkpointing+PEFT issue, training got 6 steps in then
+OOM'd at the cross-entropy loss computation:
+```
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.81 GiB. ...
+File ".../loss/loss_utils.py", line 26, in fixed_cross_entropy
+    loss = nn.functional.cross_entropy(source, target, ...)
+```
+
+**Why**: Qwen2.5-Coder has vocab ~150k. At batch=2 × seq_len=2048 × vocab=150k × 2
+bytes (bf16) = ~1.25 GB just to materialize the logits tensor. Plus shift_logits,
+gradients of the cross-entropy, intermediate buffers — all proportional to
+seq_len × vocab. The OOM happened on a step where the seq_len was at the max;
+shorter sequences earlier in training fit fine.
+
+**Fix**: drop `max_length` from 2048 to 1024. Halves logits memory directly.
+Per task #7's token-length measurement, 1024 still fits ~88% of glyphs (vs. 95%
+at 2048). The 12% lost are mostly pathological decorative fonts (pixel-art,
+layered shadow effects); the bulk of style variety is preserved.
+
+Alternatives if 1024 is too restrictive (none used):
+- `liger-kernel` fused cross-entropy — doesn't materialize full logits, but
+  requires extra dep + version compatibility check.
+- `batch=1` — keeps max_length=2048 but halves throughput.
+- A100-class GPU (40-80 GB VRAM) — out of project budget.
+
+## Gradient checkpointing + PEFT/LoRA — backward fails on frozen base model
 
 First real training launch crashed at step 0 with:
 ```
