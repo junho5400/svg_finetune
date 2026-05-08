@@ -23,6 +23,18 @@ import os
 import subprocess
 
 import torch
+
+# torch 2.6+ changed torch.load to default weights_only=True for security.
+# Our saved checkpoints include numpy objects (rng_state.pth) which strict
+# weights_only mode rejects with `Unsupported global: numpy.core.multiarray
+# ._reconstruct`. Since we only ever load our own trusted checkpoints, force
+# weights_only=False on every torch.load call.
+# See notes/gotchas.md "torch 2.6+ weights_only default breaks RNG resume".
+_orig_torch_load = torch.load
+def _torch_load_unsafe(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+torch.load = _torch_load_unsafe
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer

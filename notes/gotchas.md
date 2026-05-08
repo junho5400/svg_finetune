@@ -113,6 +113,36 @@ graph doesn't reach them.
 This combo is the standard PEFT-with-gradient-checkpointing recipe. Without it, you
 hit the error above on the first backward pass.
 
+## torch 2.6+ weights_only default breaks RNG state resume
+
+When resuming from a checkpoint, training crashed at `_load_rng_state`:
+```
+_pickle.UnpicklingError: Weights only load failed.
+WeightsUnpickler error: Unsupported global: GLOBAL numpy.core.multiarray._reconstruct
+was not an allowed global by default.
+```
+
+**Why**: torch 2.6+ changed `torch.load` to default `weights_only=True` for security.
+This rejects any non-tensor pickled objects (numpy arrays, etc.). Our saved
+`rng_state.pth` file contains numpy RNG state objects. With strict mode, loading fails.
+
+**Fix**: monkey-patch `torch.load` at the top of train.py to force
+`weights_only=False`. Since we only load our own trusted checkpoints, the security
+risk doesn't apply to us:
+```python
+_orig_torch_load = torch.load
+def _torch_load_unsafe(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+torch.load = _torch_load_unsafe
+```
+Place it BEFORE importing transformers/peft/trl so their internal `torch.load`
+calls inherit the patched version.
+
+The "proper" alternative is `torch.serialization.add_safe_globals(...)` to allowlist
+specific numpy classes, but that requires enumerating every numpy type that might
+appear in any checkpoint — fragile across torch versions.
+
 ## Disk full during checkpoint save (volume too small for full checkpoints)
 
 After ~1700 steps of training, checkpoint save crashed with:
