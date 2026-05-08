@@ -37,9 +37,13 @@ class Config:
 
     # --- Training ---
     learning_rate: float = 2e-4
-    per_device_train_batch_size: int = 4
-    per_device_eval_batch_size: int = 4
-    gradient_accumulation_steps: int = 4
+    # batch=2 + grad_accum=8 (was 4+4) keeps effective batch 16 but halves
+    # per-step activation memory — needed to fit 7B + LoRA at max_length=2048
+    # on a 24GB 4090. See notes/gotchas.md "OOM on first real training step".
+    per_device_train_batch_size: int = 2
+    per_device_eval_batch_size: int = 2
+    gradient_accumulation_steps: int = 8
+    gradient_checkpointing: bool = True   # ~30% slower, ~50% less activation mem
     # 2 epochs (was 1) — same reasoning as the LoRA rank bump: model has more to
     # learn from scratch than originally assumed. Save_steps gives us early-stop
     # option if val loss plateaus.

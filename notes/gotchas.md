@@ -90,6 +90,31 @@ Test run with 640×160 images had Claude calling 42dot Sans "italic" (it isn't),
 **passing the font's category as ground-truth in the prompt**. With `category=SANS_SERIF`
 declared, Claude focused on visual nuances within sans-serif rather than miscategorizing.
 
+## OOM on first real training step (4090, 7B + LoRA, max_length=2048)
+
+First real training launch crashed at step 0 with:
+```
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 136.00 MiB.
+GPU 0 has a total capacity of 23.54 GiB of which 11.75 MiB is free.
+```
+
+Just barely over the 24GB ceiling. Memory budget at the limit:
+- 7B model in bf16: ~14 GB
+- LoRA adapter (80M params) + AdamW optimizer state + gradients: ~1 GB
+- Activations at batch=4 × max_length=2048 × hidden=3584 × 32 layers: 8-10 GB
+- Misc CUDA buffers / fragmentation: ~1 GB
+- **Total: just over 24 GB → OOM**
+
+**Fix**: two changes in config.py:
+1. `gradient_checkpointing=True` — recomputes activations in backward pass instead
+   of storing them. ~30% slower, but ~50% less activation memory.
+2. `per_device_train_batch_size: 4 → 2`, `gradient_accumulation_steps: 4 → 8`. Keeps
+   effective batch 16 but halves activation memory per step.
+
+Combined, the run fits comfortably with margin. Both knobs are conservative — could
+go back to batch=4 if quality demands more parallelism, but checkpointing should
+stay on for any 7B training on a 24GB GPU.
+
 ## Response template tokenization mismatch (DataCollatorForCompletionOnlyLM)
 
 Dry run on RunPod showed warnings for ~40% of examples:
