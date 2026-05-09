@@ -185,7 +185,7 @@ def main(dry_run: bool) -> None:
     trainer.save_model(str(final_dir))
 
     if cfg.push_to_hub:
-        print(f"Pushing to {cfg.hub_repo_id}...")
+        print(f"Pushing to {hub_repo}...")
         trainer.push_to_hub()
 
     print("Done.")
