@@ -89,26 +89,45 @@ def main(dry_run: bool) -> None:
     if not dry_run:
         os.environ.setdefault("WANDB_PROJECT", cfg.wandb_project)
 
+    # Env var overrides — let a Colab notebook tune knobs per-session without
+    # editing config.py. Useful for adapting to different GPUs (A100 vs 4090)
+    # or session lengths.
+    def _env(key, default, cast=str):
+        v = os.environ.get(key)
+        if v is None: return default
+        if cast is bool: return v.lower() in ("1", "true", "yes")
+        return cast(v)
+
+    batch_size = _env("SVG_BATCH_SIZE", cfg.per_device_train_batch_size, int)
+    grad_accum = _env("SVG_GRAD_ACCUM", cfg.gradient_accumulation_steps, int)
+    grad_ckpt = _env("SVG_GRAD_CKPT", getattr(cfg, "gradient_checkpointing", False), bool)
+    max_length = _env("SVG_MAX_LENGTH", cfg.max_length, int)
+    hub_strategy = _env("SVG_HUB_STRATEGY", "end")  # "every_save" for resilient Colab runs
+    hub_repo = _env("SVG_HUB_REPO", cfg.hub_repo_id)
+    save_only_model = _env("SVG_SAVE_ONLY_MODEL", getattr(cfg, "save_only_model", False), bool)
+    save_steps = _env("SVG_SAVE_STEPS", cfg.save_steps, int)
+
     sft_args = SFTConfig(
         output_dir=str(cfg.output_dir),
         learning_rate=cfg.learning_rate,
-        per_device_train_batch_size=cfg.per_device_train_batch_size,
+        per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=cfg.per_device_eval_batch_size,
-        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
-        gradient_checkpointing=getattr(cfg, "gradient_checkpointing", False),
+        gradient_accumulation_steps=grad_accum,
+        gradient_checkpointing=grad_ckpt,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         num_train_epochs=cfg.num_train_epochs,
         warmup_ratio=cfg.warmup_ratio,
         lr_scheduler_type=cfg.lr_scheduler_type,
         weight_decay=cfg.weight_decay,
         bf16=use_bf16,
-        max_seq_length=cfg.max_length,
+        max_seq_length=max_length,
         logging_steps=cfg.logging_steps,
-        save_steps=cfg.save_steps,
+        save_steps=save_steps,
         save_total_limit=cfg.save_total_limit,
-        save_only_model=getattr(cfg, "save_only_model", False),
+        save_only_model=save_only_model,
         push_to_hub=cfg.push_to_hub,
-        hub_model_id=cfg.hub_repo_id if cfg.push_to_hub else None,
+        hub_model_id=hub_repo if cfg.push_to_hub else None,
+        hub_strategy=hub_strategy,   # "every_save" pushes after each save_steps
         report_to=["wandb"] if not dry_run else "none",
         run_name=cfg.wandb_run_name,
         dataset_text_field="text",
@@ -120,12 +139,12 @@ def main(dry_run: bool) -> None:
             else int(os.environ["SVG_MAX_STEPS_OVERRIDE"]) if os.environ.get("SVG_MAX_STEPS_OVERRIDE")
             else -1
         ),
-        # eval disabled — val set is too large to eval at training cadence
-        # without dominating runtime (~1-2h per eval × 425 evals at eval_steps=200
-        # = days of eval alone). Real evaluation is qualitative on the test set
-        # post-training (see notes/decisions.md "Validation framework").
         eval_strategy="no",
     )
+
+    print(f"  effective settings: batch={batch_size} grad_accum={grad_accum} "
+          f"max_len={max_length} grad_ckpt={grad_ckpt} hub_strategy={hub_strategy} "
+          f"save_only_model={save_only_model}")
 
     # Pass response template as token IDs (not as a string) and drop the
     # leading "\n" — see notes/gotchas.md "Response template tokenization
