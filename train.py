@@ -106,6 +106,7 @@ def main(dry_run: bool) -> None:
     hub_repo = _env("SVG_HUB_REPO", cfg.hub_repo_id)
     save_only_model = _env("SVG_SAVE_ONLY_MODEL", getattr(cfg, "save_only_model", False), bool)
     save_steps = _env("SVG_SAVE_STEPS", cfg.save_steps, int)
+    hub_private = _env("SVG_HUB_PRIVATE", True, bool)  # default to private — safer
 
     sft_args = SFTConfig(
         output_dir=str(cfg.output_dir),
@@ -127,6 +128,7 @@ def main(dry_run: bool) -> None:
         save_only_model=save_only_model,
         push_to_hub=cfg.push_to_hub,
         hub_model_id=hub_repo if cfg.push_to_hub else None,
+        hub_private_repo=hub_private,
         hub_strategy=hub_strategy,   # "every_save" pushes after each save_steps
         report_to=["wandb"] if not dry_run else "none",
         run_name=cfg.wandb_run_name,
@@ -144,7 +146,7 @@ def main(dry_run: bool) -> None:
 
     print(f"  effective settings: batch={batch_size} grad_accum={grad_accum} "
           f"max_len={max_length} grad_ckpt={grad_ckpt} hub_strategy={hub_strategy} "
-          f"save_only_model={save_only_model}")
+          f"save_only_model={save_only_model} hub_private={hub_private}")
 
     # Pass response template as token IDs (not as a string) and drop the
     # leading "\n" — see notes/gotchas.md "Response template tokenization
