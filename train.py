@@ -45,6 +45,30 @@ from config import Config, DryRunConfig
 from data import load_datasets
 
 
+class OverrideStateIntervalsCallback(TrainerCallback):
+    """Force state.save_steps / state.logging_steps from args on train start.
+
+    HF Trainer's DefaultFlowCallback uses `state.save_steps` (loaded from
+    trainer_state.json on resume) — NOT `args.save_steps` — to decide when
+    to save. So if the original training had save_steps=500 baked into its
+    trainer_state.json, that 500 sticks across resumes regardless of what
+    you set via TrainingArguments. The warning Trainer prints
+    ("args.save_steps != state.save_steps") is informational; state wins.
+
+    This callback overrides state.save_steps from args at on_train_begin.
+    The next checkpoint save writes the new value to trainer_state.json,
+    so future sessions inherit the corrected value (idempotent after first
+    save).
+    """
+    def on_train_begin(self, args, state, control, **kwargs):
+        if state.save_steps != args.save_steps:
+            print(f"[override] state.save_steps {state.save_steps} → {args.save_steps}")
+            state.save_steps = args.save_steps
+        if state.logging_steps != args.logging_steps:
+            print(f"[override] state.logging_steps {state.logging_steps} → {args.logging_steps}")
+            state.logging_steps = args.logging_steps
+
+
 class FullCheckpointPushCallback(TrainerCallback):
     """Push the entire checkpoint folder to HF Hub after each local save.
 
@@ -196,11 +220,14 @@ def main(dry_run: bool) -> None:
         tokenizer=tok,
     )
 
+    # OverrideStateIntervalsCallback forces state.save_steps from args at
+    # train start (Trainer otherwise uses the value baked into the resumed
+    # trainer_state.json, ignoring args).
     # FullCheckpointPushCallback fires on every local save and pushes the
     # entire checkpoint dir (incl. optimizer/scheduler/state). Trainer's
     # built-in hub push only handles adapter files for PEFT — we need this
     # so cross-session resume works.
-    callbacks = []
+    callbacks = [OverrideStateIntervalsCallback()]
     if not dry_run and cfg.push_to_hub:
         callbacks.append(FullCheckpointPushCallback(repo_id=hub_repo))
 
