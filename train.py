@@ -35,12 +35,45 @@ def _torch_load_unsafe(*args, **kwargs):
     kwargs.setdefault("weights_only", False)
     return _orig_torch_load(*args, **kwargs)
 torch.load = _torch_load_unsafe
+from huggingface_hub import HfApi
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+from transformers.trainer_callback import TrainerCallback
 from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
 
 from config import Config, DryRunConfig
 from data import load_datasets
+
+
+class FullCheckpointPushCallback(TrainerCallback):
+    """Push the entire checkpoint folder to HF Hub after each local save.
+
+    Trainer's built-in hub_strategy='every_save' is selective for PEFT models
+    — it only pushes adapter_*, config, and tokenizer files, NOT optimizer.pt,
+    scheduler.pt, trainer_state.json, or rng_state.pth. That breaks
+    cross-session resume because the next session has no Adam momentum, no
+    LR schedule progress, and no step counter on Hub. This callback
+    explicitly pushes the whole checkpoint dir so resume works.
+    """
+    def __init__(self, repo_id: str, token: str | None = None) -> None:
+        self.repo_id = repo_id
+        self.api = HfApi(token=token or os.environ.get("HF_TOKEN"))
+
+    def on_save(self, args, state, control, **kwargs):
+        ckpt_dir = f"{args.output_dir}/checkpoint-{state.global_step}"
+        if not os.path.exists(ckpt_dir):
+            print(f"[full-push] checkpoint dir not found: {ckpt_dir}")
+            return
+        print(f"[full-push] step {state.global_step} → {self.repo_id}")
+        try:
+            self.api.upload_folder(
+                folder_path=ckpt_dir,
+                repo_id=self.repo_id,
+                commit_message=f"Full checkpoint, step {state.global_step}",
+            )
+            print(f"[full-push] step {state.global_step} pushed.")
+        except Exception as e:
+            print(f"[full-push] step {state.global_step} FAILED: {e}")
 
 
 def main(dry_run: bool) -> None:
@@ -163,6 +196,14 @@ def main(dry_run: bool) -> None:
         tokenizer=tok,
     )
 
+    # FullCheckpointPushCallback fires on every local save and pushes the
+    # entire checkpoint dir (incl. optimizer/scheduler/state). Trainer's
+    # built-in hub push only handles adapter files for PEFT — we need this
+    # so cross-session resume works.
+    callbacks = []
+    if not dry_run and cfg.push_to_hub:
+        callbacks.append(FullCheckpointPushCallback(repo_id=hub_repo))
+
     trainer = SFTTrainer(
         model=model,
         args=sft_args,
@@ -170,6 +211,7 @@ def main(dry_run: bool) -> None:
         eval_dataset=val_ds,
         data_collator=collator,
         tokenizer=tok,
+        callbacks=callbacks,
     )
 
     print(f"Starting {'DRY-RUN' if dry_run else 'training'}...")
